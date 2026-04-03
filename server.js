@@ -6,7 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 4173;
+const PORT = 4173;
 
 // Serve static files from the Vite build output
 app.use(express.static(join(__dirname, 'dist')));
