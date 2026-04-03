@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Users, Calendar, Clock, Bell, LogOut, Menu, BookOpen, ShieldAlert } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { logout } from '../utils/auth';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -43,7 +44,10 @@ export default function Dashboard() {
         </nav>
 
         <div className="p-4 border-t border-slate-800">
-          <button onClick={() => navigate('/login')} className="flex items-center gap-3 px-3 py-2 w-full hover:bg-slate-800 rounded-lg transition-colors text-red-400">
+          <button
+            onClick={() => { logout(); navigate('/login', { replace: true }); }}
+            className="flex items-center gap-3 px-3 py-2 w-full hover:bg-slate-800 rounded-lg transition-colors text-red-400"
+          >
             <LogOut className="w-5 h-5" /> Cerrar Sesión
           </button>
         </div>
