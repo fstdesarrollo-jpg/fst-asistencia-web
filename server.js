@@ -12,8 +12,10 @@ const PORT = process.env.PORT || 4173;
 app.use(express.static(join(__dirname, 'dist')));
 
 // SPA fallback — serve index.html for all non-file routes so that
-// client-side routing (react-router-dom) works correctly
-app.get('*', (_req, res) => {
+// client-side routing (react-router-dom) works correctly.
+// app.use() is used instead of app.get('*') because Express 5.x does not
+// accept bare '*' as a route pattern (throws PathError).
+app.use((_req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'));
 });
 
