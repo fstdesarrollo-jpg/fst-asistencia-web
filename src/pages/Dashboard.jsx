@@ -1,13 +1,17 @@
-import { useState } from 'react';
 import { Users, Calendar, Clock, Bell, LogOut, Menu, BookOpen, ShieldAlert } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { logout } from '../utils/auth';
+import { logout, getCurrentRole, getCurrentNombre } from '../utils/auth';
+import { hasPermission, PERMISSIONS } from '../utils/roles';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  // Simulador de privilegios para la Fase 1
-  const [rolActual, setRolActual] = useState('Administrador');
-  const esBasico = rolActual === 'Profesional';
+  const rolActual = getCurrentRole();
+  const nombreActual = getCurrentNombre();
+
+  // Permission flags derived from the real session role
+  const puedeGestionarPersonal = hasPermission(PERMISSIONS.ACCESS_GESTOR_PERSONAL);
+  const puedeGestionarMadres   = hasPermission(PERMISSIONS.ACCESS_GESTOR_MADRES);
+  const esBasico = !hasPermission(PERMISSIONS.VIEW_ALL_DATA);
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -19,7 +23,15 @@ export default function Dashboard() {
         </div>
         
         <nav className="flex-1 px-4 space-y-2 mt-4 flex flex-col">
-          {!esBasico && (
+          {puedeGestionarPersonal && (
+             <div className="mb-4">
+               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider px-3 mb-2">Administración</p>
+               <button onClick={() => navigate('/gestor-personal')} className="flex items-center gap-3 px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors w-full text-left">
+                 <ShieldAlert className="w-5 h-5 text-accent-500" /> Gestión de Personal
+               </button>
+             </div>
+          )}
+          {puedeGestionarMadres && (
              <div className="mb-4">
                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider px-3 mb-2">Base de Datos VIP</p>
                <button onClick={() => navigate('/gestor-madres')} className="flex items-center gap-3 px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors w-full text-left">
@@ -44,6 +56,16 @@ export default function Dashboard() {
         </nav>
 
         <div className="p-4 border-t border-slate-800">
+          {/* Current user info */}
+          <div className="flex items-center gap-3 px-3 py-2 mb-2">
+            <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+              {nombreActual.charAt(0)}
+            </div>
+            <div className="min-w-0">
+              <p className="text-white text-xs font-bold truncate">{nombreActual}</p>
+              <p className="text-slate-400 text-[10px] truncate">{rolActual}</p>
+            </div>
+          </div>
           <button
             onClick={() => { logout(); navigate('/login', { replace: true }); }}
             className="flex items-center gap-3 px-3 py-2 w-full hover:bg-slate-800 rounded-lg transition-colors text-red-400"
@@ -60,25 +82,24 @@ export default function Dashboard() {
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-4">
-            <div className="hidden lg:flex bg-slate-100 rounded-lg p-1 gap-1 border border-slate-200 shadow-inner">
-               <button onClick={() => setRolActual('Administrador')} className={`px-2 py-1.5 text-xs rounded font-bold transition-all ${rolActual === 'Administrador' ? 'bg-white shadow text-primary-700' : 'text-slate-500 hover:bg-slate-200'}`}>Admin</button>
-               <button onClick={() => setRolActual('Coordinadora Técnica')} className={`px-2 py-1.5 text-xs rounded font-bold transition-all ${rolActual === 'Coordinadora Técnica' ? 'bg-white shadow text-primary-700' : 'text-slate-500 hover:bg-slate-200'}`}>Técnica</button>
-               <button onClick={() => setRolActual('Coordinador')} className={`px-2 py-1.5 text-xs rounded font-bold transition-all ${rolActual === 'Coordinador' ? 'bg-white shadow text-primary-700' : 'text-slate-500 hover:bg-slate-200'}`}>Coordinador</button>
-               <button onClick={() => setRolActual('Profesional')} className={`px-2 py-1.5 text-xs rounded font-bold transition-all ${rolActual === 'Profesional' ? 'bg-white shadow text-primary-700' : 'text-slate-500 hover:bg-slate-200'}`}>Profesional</button>
-            </div>
+            {/* Role badge */}
+            <span className="hidden lg:inline-flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 shadow-inner">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
+              {rolActual}
+            </span>
             <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold border border-primary-200 shrink-0">
-              {rolActual.charAt(0)}
+              {nombreActual.charAt(0)}
             </div>
-            <span className="font-bold text-slate-700 hidden md:block">{rolActual}</span>
+            <span className="font-bold text-slate-700 hidden md:block">{nombreActual}</span>
           </div>
         </header>
 
         <div className="flex-1 overflow-auto p-6 md:p-8 animate-fade-in">
           <h1 className="text-2xl font-bold text-slate-800 mb-2">Panel Virtual FST</h1>
-          <p className="text-slate-500 mb-8 pb-4 border-b border-slate-200">Nivel de seguridad activado: <strong className="text-primary-600">{rolActual}</strong> {esBasico && <span className="text-red-500 ml-2">(Funciones base de datos restingidas)</span>}</p>
+          <p className="text-slate-500 mb-8 pb-4 border-b border-slate-200">Nivel de seguridad activado: <strong className="text-primary-600">{rolActual}</strong> {esBasico && <span className="text-red-500 ml-2">(Funciones base de datos restringidas)</span>}</p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {(rolActual === 'Administrador' || rolActual === 'Coordinador' || rolActual === 'Coordinadora Técnica') && (
+            {puedeGestionarPersonal && (
              <div onClick={() => navigate('/gestor-personal')} className="bg-gradient-to-br from-slate-900 to-black text-white p-6 rounded-2xl shadow-2xl flex flex-col md:flex-row items-center hover:scale-[1.02] transition-transform cursor-pointer col-span-1 md:col-span-2 lg:col-span-4 gap-6 mb-2 border border-slate-700">
                <div className="w-16 h-16 bg-accent-500/20 rounded-full flex items-center justify-center shrink-0 border border-accent-500/50">
                  <ShieldAlert className="w-8 h-8 text-accent-500" />
@@ -90,7 +111,7 @@ export default function Dashboard() {
              </div>
             )}
             
-            {!esBasico && (
+            {puedeGestionarMadres && (
              <div onClick={() => navigate('/gestor-madres')} className="bg-primary-900 text-white p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-center hover:scale-[1.02] transition-transform cursor-pointer col-span-1 md:col-span-2 lg:col-span-4 gap-6 mb-4">
                <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center shrink-0">
                  <BookOpen className="w-8 h-8 text-primary-200" />
