@@ -2,29 +2,30 @@ const AUTH_KEY = 'fst_auth';
 const ROLE_KEY = 'fst_role';
 
 /**
- * Registered users with their credentials and roles.
- * In a real system these would live in a backend database.
+ * Attempt to log in with the provided credentials via the backend API.
+ * Stores the authenticated user's role in sessionStorage on success.
+ *
+ * Returns an object: { success: boolean, error?: string }
+ * This is async — callers must await it.
  */
-const USERS = [
-  { cedula: '1080290117', password: 'Somos.26fstadmin', rol: 'Administrador', nombre: 'Administrador FST' },
-];
-
-/**
- * Attempt to log in with the provided credentials.
- * Stores the authenticated user's role in sessionStorage.
- * Returns true on success, false on failure.
- */
-export function login(cedula, password) {
-  const user = USERS.find(
-    (u) => u.cedula === cedula && u.password === password
-  );
-  if (user) {
-    sessionStorage.setItem(AUTH_KEY, 'true');
-    sessionStorage.setItem(ROLE_KEY, user.rol);
-    sessionStorage.setItem('fst_nombre', user.nombre);
-    return true;
+export async function login(cedula, password) {
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cedula, password }),
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      sessionStorage.setItem(AUTH_KEY, 'true');
+      sessionStorage.setItem(ROLE_KEY, json.data.rol);
+      sessionStorage.setItem('fst_nombre', json.data.nombre);
+      return { success: true };
+    }
+    return { success: false, error: json.error ?? 'Credenciales incorrectas.' };
+  } catch (_err) {
+    return { success: false, error: 'No se pudo conectar con el servidor. Intenta de nuevo.' };
   }
-  return false;
 }
 
 /** Remove the authentication token and clear the session. */

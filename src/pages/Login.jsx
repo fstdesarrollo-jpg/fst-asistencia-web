@@ -10,22 +10,19 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Small delay to prevent brute-force timing attacks and give visual feedback
-    setTimeout(() => {
-      const success = login(cedula.trim(), password);
-      if (success) {
-        navigate('/dashboard', { replace: true });
-      } else {
-        setError('Cédula o contraseña incorrectos. Verifique sus credenciales e intente de nuevo.');
-        setPassword('');
-      }
-      setLoading(false);
-    }, 400);
+    const result = await login(cedula.trim(), password);
+    if (result.success) {
+      navigate('/dashboard', { replace: true });
+    } else {
+      setError(result.error ?? 'Cédula o contraseña incorrectos. Verifique sus credenciales e intente de nuevo.');
+      setPassword('');
+    }
+    setLoading(false);
   };
 
   return (

@@ -1,9 +1,10 @@
-import { useState, useRef } from 'react';
-import { UserPlus, Search, ShieldAlert, KeyRound, Building2, Trash2, ShieldCheck, Mail, MapPin, RefreshCw, ArrowLeft, Home, FileSpreadsheet, Upload, Download, X, CheckCircle, AlertCircle, Users } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { UserPlus, Search, ShieldAlert, KeyRound, Building2, Trash2, ShieldCheck, Mail, MapPin, RefreshCw, ArrowLeft, Home, FileSpreadsheet, Upload, Download, X, CheckCircle, AlertCircle, Users, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { getCurrentRole } from '../utils/auth';
 import { canManageEmployees, canDeleteEmployees, canGeneratePasswords, canViewPasswords, IMPORTABLE_ROLES } from '../utils/roles';
+import { apiGetUsuarios, apiCreateUsuario, apiDeleteUsuario, apiGeneratePassword, apiBulkUsuarios } from '../utils/api';
 
 // ─── Excel template columns ──────────────────────────────────────────────────
 const TEMPLATE_COLUMNS = [
@@ -54,12 +55,10 @@ export default function GestorPersonal() {
   const [importFileName, setImportFileName] = useState('');
   const [busqueda, setBusqueda] = useState('');
 
-  // Mock data representing Staff
-  const [personal, setPersonal] = useState([
-    { id: 1, nombre: 'Ana María Osorio', documento: '11112222', correo: 'ana@fst.com', municipio: 'Ibagué', equipo: 'Zonal 1', cargo: 'Coordinadora Zonal', rol: 'Coordinador', password: null, estado: 'Pendiente' },
-    { id: 2, nombre: 'Julián Camilo Reyes', documento: '33334444', correo: 'julian@fst.com', municipio: 'Lérida', equipo: 'Zonal 2', cargo: 'Profesional Psicosocial', rol: 'Profesional', password: null, estado: 'Pendiente' },
-    { id: 3, nombre: 'Marta Helena Restrepo', documento: '55556666', correo: 'marta@fst.com', municipio: 'Planadas', equipo: 'Zonal 3', cargo: 'Técnica de Operaciones', rol: 'Coordinadora Técnica', password: '948271', estado: 'Activo' },
-  ]);
+  // ── Data state ──────────────────────────────────────────────────────────────
+  const [personal, setPersonal] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(null);
 
   const [notificacion, setNotificacion] = useState(null);
 
@@ -68,16 +67,47 @@ export default function GestorPersonal() {
     setTimeout(() => setNotificacion(null), 5000);
   };
 
+  // ── Load data from API on mount ─────────────────────────────────────────────
+  const cargarPersonal = useCallback(async () => {
+    setLoading(true);
+    setApiError(null);
+    const res = await apiGetUsuarios();
+    if (res.success) {
+      // Normalise DB field names to match the UI expectations
+      setPersonal(res.data.map(u => ({
+        id: u.id,
+        nombre: u.nombre,
+        documento: u.cedula,
+        correo: u.email,
+        cargo: u.cargo,
+        municipio: u.municipio,
+        equipo: u.equipo,
+        rol: u.rol,
+        estado: u.estado,
+        password: null, // never returned from API; shown via estado
+      })));
+    } else {
+      setApiError(res.error ?? 'Error al cargar el personal.');
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { cargarPersonal(); }, [cargarPersonal]);
+
   // ── Individual add ──────────────────────────────────────────────────────────
-  const eliminarPersonal = (id, nombre) => {
+  const eliminarPersonal = async (id, nombre) => {
     if (!puedeEliminar) return;
-    if (window.confirm(`🚧 ¡ALERTA DE SEGURIDAD EXTREMA! 🚧\n\n¿Estás absolutamente segura de REVOCAR EL ACCESO INMEDIATO a ${nombre}?\n\nEsta persona ya no podrá entrar a la aplicación ni registrar datos.`)) {
-      setPersonal(personal.filter(p => p.id !== id));
+    if (!window.confirm(`🚧 ¡ALERTA DE SEGURIDAD EXTREMA! 🚧\n\n¿Estás absolutamente segura de REVOCAR EL ACCESO INMEDIATO a ${nombre}?\n\nEsta persona ya no podrá entrar a la aplicación ni registrar datos.`)) return;
+    const res = await apiDeleteUsuario(id);
+    if (res.success) {
+      setPersonal(prev => prev.filter(p => p.id !== id));
       mostrarNotificacion(`Acceso revocado definitivamente para ${nombre}. Su credencial ha sido destruida del sistema.`);
+    } else {
+      alert(`Error al eliminar: ${res.error}`);
     }
   };
 
-  const agregarPersonal = () => {
+  const agregarPersonal = async () => {
     if (!puedeGestionar) return;
     const nombre = window.prompt(`Paso 1/7: Escribe el NOMBRE COMPLETO del trabajador:`);
     if (!nombre) return;
@@ -104,37 +134,57 @@ export default function GestorPersonal() {
     if(rol === '2') rolAsignado = 'Coordinador';
     if(rol === '3') rolAsignado = 'Coordinadora Técnica';
 
-    setPersonal(prev => [...prev, { 
-      id: Date.now(), 
-      nombre: nombre.trim(), 
-      documento: doc.trim(), 
-      correo: correo.trim(),
+    const res = await apiCreateUsuario({
+      cedula: doc.trim(),
+      nombre: nombre.trim(),
+      email: correo.trim(),
+      cargo: cargo.trim(),
       municipio: municipio.trim(),
       equipo: equipo.trim(),
-      cargo: cargo.trim(), 
-      rol: rolAsignado, 
-      password: null,
-      estado: 'Pendiente'
-    }]);
+      rol: rolAsignado,
+    });
 
-    mostrarNotificacion(`¡Alta de perfil exitosa! ${nombre} ha sido ingresado al sistema. Se ha enviado automáticamente una alerta al Administrador para que genere y autorice su contraseña.`);
+    if (res.success) {
+      const u = res.data;
+      setPersonal(prev => [...prev, {
+        id: u.id,
+        nombre: u.nombre,
+        documento: u.cedula,
+        correo: u.email,
+        cargo: u.cargo,
+        municipio: u.municipio,
+        equipo: u.equipo,
+        rol: u.rol,
+        estado: u.estado,
+        password: null,
+      }]);
+      mostrarNotificacion(`¡Alta de perfil exitosa! ${nombre} ha sido ingresado al sistema. Se ha enviado automáticamente una alerta al Administrador para que genere y autorice su contraseña.`);
+    } else {
+      alert(`Error al crear empleado: ${res.error}`);
+    }
   };
 
-  const generarContrasena = (id, nombre, correo, yaTiene) => {
+  const generarContrasena = async (id, nombre, correo, yaTiene) => {
     if (!puedeGenerarClave) return;
     if (yaTiene && !window.confirm(`⚠️ ${nombre} ya tiene una contraseña activa. ¿Estás seguro de que deseas REVOCAR la actual y enviarle una NUEVA contraseña por correo?`)) {
        return;
     }
     
-    const nuevaClave = Math.floor(100000 + Math.random() * 900000).toString();
-    
+    const res = await apiGeneratePassword(id);
+    if (!res.success) {
+      alert(`Error al generar contraseña: ${res.error}`);
+      return;
+    }
+
+    const { nuevaClave } = res.data;
+
     setPersonal(prev => prev.map(p => {
-      if (p.id === id) return { ...p, password: nuevaClave, estado: 'Activo' };
+      if (p.id === id) return { ...p, estado: 'Activo' };
       return p;
     }));
     
-    alert(`🔑 LLAVE MAESTRA CREADA CON ÉXITO\n\nEl sistema FST ha generado automáticamente la clave de 6 dígitos segura para ${nombre}.\n\nNueva Clave: [ ${nuevaClave} ]\n\nSIMULACIÓN: El servidor acaba de enviar un correo a [${correo}] informando al profesional su nuevo acceso al Software FST.`);
-    mostrarNotificacion(`Contraseña actualizada y correo enviado a ${correo}.`);
+    alert(`🔑 LLAVE MAESTRA CREADA CON ÉXITO\n\nEl sistema FST ha generado automáticamente la clave de 6 dígitos segura para ${nombre}.\n\nNueva Clave: [ ${nuevaClave} ]\n\nEl servidor ha registrado la contraseña cifrada. Comparte esta clave con ${nombre} para que pueda acceder al sistema.`);
+    mostrarNotificacion(`Contraseña generada y guardada en la base de datos para ${correo}.`);
   };
 
   // ── Excel template download ─────────────────────────────────────────────────
@@ -222,33 +272,50 @@ export default function GestorPersonal() {
   };
 
   // ── Confirm bulk import ─────────────────────────────────────────────────────
-  const confirmarImport = () => {
+  const confirmarImport = async () => {
     if (!importPreview || importErrors.length > 0) return;
 
-    const resultados = [];
-    const nuevos = [];
+    // Map Excel rows to API payload
+    const usuarios = importPreview.map(row => ({
+      cedula:    String(row['Número de Documento']).trim(),
+      nombre:    String(row['Nombre Completo']).trim(),
+      email:     String(row['Correo Electrónico']).trim(),
+      cargo:     String(row['Cargo']).trim(),
+      municipio: String(row['Municipio']).trim(),
+      equipo:    String(row['Equipo Asignado']).trim(),
+      rol:       String(row['Rol']).trim(),
+    }));
 
-    importPreview.forEach((row, i) => {
-      const docExistente = personal.find(p => p.documento === String(row['Número de Documento']).trim());
-      if (docExistente) {
-        resultados.push({ fila: i + 2, nombre: row['Nombre Completo'], ok: false, msg: `Documento ${row['Número de Documento']} ya existe en el sistema.` });
-        return;
-      }
-      const nuevo = {
-        id: Date.now() + i,
-        nombre: String(row['Nombre Completo']).trim(),
-        documento: String(row['Número de Documento']).trim(),
-        correo: String(row['Correo Electrónico']).trim(),
-        cargo: String(row['Cargo']).trim(),
-        municipio: String(row['Municipio']).trim(),
-        equipo: String(row['Equipo Asignado']).trim(),
-        rol: String(row['Rol']).trim(),
+    const res = await apiBulkUsuarios(usuarios);
+
+    if (!res.success) {
+      alert(`Error en la importación: ${res.error}`);
+      return;
+    }
+
+    // Build UI result list from API response
+    const resultados = res.data.map((r, i) => ({
+      fila: i + 2,
+      nombre: r.nombre ?? r.cedula,
+      ok: r.ok,
+      msg: r.msg,
+    }));
+
+    // Add successfully imported users to local state
+    const nuevos = res.data
+      .filter(r => r.ok && r.data)
+      .map(r => ({
+        id: r.data.id,
+        nombre: r.data.nombre,
+        documento: r.data.cedula,
+        correo: r.data.email,
+        cargo: r.data.cargo,
+        municipio: r.data.municipio,
+        equipo: r.data.equipo,
+        rol: r.data.rol,
+        estado: r.data.estado,
         password: null,
-        estado: 'Pendiente',
-      };
-      nuevos.push(nuevo);
-      resultados.push({ fila: i + 2, nombre: nuevo.nombre, ok: true, msg: 'Importado correctamente.' });
-    });
+      }));
 
     setPersonal(prev => [...prev, ...nuevos]);
     setImportResultados(resultados);
@@ -406,14 +473,32 @@ export default function GestorPersonal() {
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                     {personalFiltrado.length === 0 && (
+                     {loading && (
+                       <tr>
+                         <td colSpan={esAdmin ? 5 : 4} className="p-10 text-center text-slate-400 font-bold">
+                           <div className="flex items-center justify-center gap-2">
+                             <Loader2 className="w-5 h-5 animate-spin" /> Cargando personal desde la base de datos...
+                           </div>
+                         </td>
+                       </tr>
+                     )}
+                     {!loading && apiError && (
+                       <tr>
+                         <td colSpan={esAdmin ? 5 : 4} className="p-10 text-center text-red-500 font-bold">
+                           <div className="flex items-center justify-center gap-2">
+                             <AlertCircle className="w-5 h-5" /> {apiError}
+                           </div>
+                         </td>
+                       </tr>
+                     )}
+                     {!loading && !apiError && personalFiltrado.length === 0 && (
                        <tr>
                          <td colSpan={esAdmin ? 5 : 4} className="p-10 text-center text-slate-400 font-bold">
                            {busqueda ? 'No se encontraron empleados con esa búsqueda.' : 'No hay empleados registrados.'}
                          </td>
                        </tr>
                      )}
-                     {personalFiltrado.map((p) => (
+                     {!loading && !apiError && personalFiltrado.map((p) => (
                         <tr key={p.id} className="hover:bg-blue-50/40 transition-colors">
                            
                            <td className="p-4 border-r border-slate-200 align-top">
