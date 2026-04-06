@@ -1,44 +1,124 @@
-import { useState } from 'react';
-import { Users, Search, Plus, Edit2, Trash2, Mail, ShieldCheck, ArrowLeft, Home } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Users, Search, Plus, Edit2, Trash2, Mail, ShieldCheck, ArrowLeft, Home, Loader2, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { apiGetMadres, apiCreateMadre, apiUpdateMadre, apiDeleteMadre } from '../utils/api';
 
 export default function GestorMadres() {
   const navigate = useNavigate();
-  // Mock data representing Mothers
-  const [madres, setMadres] = useState([
-    { id: 1, nombre: 'Carmen Lucía Ramírez', documento: '1023456789', municipio: 'Ibagué', equipo: 'Equipo 1', correo: 'carmen.r@example.com' },
-    { id: 2, nombre: 'María Esperanza Gómez', documento: '51892341', municipio: 'Lérida', equipo: 'Equipo 2', correo: 'maria.g@example.com' },
-    { id: 3, nombre: 'Ana Rosa Pineda', documento: '34561239', municipio: 'Chaparral', equipo: 'Equipo 1', correo: 'ana.pineda@example.com' },
-  ]);
 
+  const [madres, setMadres] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(null);
+  const [busqueda, setBusqueda] = useState('');
   const [notificacion, setNotificacion] = useState(null);
 
-  const simularNotificacion = (accion, nombre) => {
-    setNotificacion(`Se envió una ALERTA por correo electrónico a la Súper Administradora y a la Coordinadora Técnica notificando sobre la ${accion} de: ${nombre}`);
+  const mostrarNotificacion = (mensaje) => {
+    setNotificacion(mensaje);
     setTimeout(() => setNotificacion(null), 6000);
   };
 
-  const eliminarMadre = (id, nombre) => {
-    if (window.confirm(`¿Estás seguro de eliminar a ${nombre} del sistema?\n\n¡OJO! Esta acción será notificada inmediatamente a la Coordinación Técnica.`)) {
-      setMadres(madres.filter(m => m.id !== id));
-      simularNotificacion('eliminación', nombre);
+  // ── Load data from API on mount ─────────────────────────────────────────────
+  const cargarMadres = useCallback(async () => {
+    setLoading(true);
+    setApiError(null);
+    const res = await apiGetMadres();
+    if (res.success) {
+      setMadres(res.data.map(m => ({
+        id: m.id,
+        nombre: m.nombre,
+        documento: m.documento,
+        municipio: m.municipio,
+        equipo: m.equipo ?? '',
+        correo: m.email ?? '',
+        estado: m.estado,
+      })));
+    } else {
+      setApiError(res.error ?? 'Error al cargar las madres sustitutas.');
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { cargarMadres(); }, [cargarMadres]);
+
+  const eliminarMadre = async (id, nombre) => {
+    if (!window.confirm(`¿Estás seguro de eliminar a ${nombre} del sistema?\n\n¡OJO! Esta acción será notificada inmediatamente a la Coordinación Técnica.`)) return;
+    const res = await apiDeleteMadre(id);
+    if (res.success) {
+      setMadres(prev => prev.filter(m => m.id !== id));
+      mostrarNotificacion(`Se registró la eliminación de ${nombre} en la base de datos. La Coordinación Técnica ha sido notificada.`);
+    } else {
+      alert(`Error al eliminar: ${res.error}`);
     }
   };
 
-  const editarMadre = (nombre) => {
-    const promptNuevoEquipo = window.prompt(`Cambiar datos de ${nombre} \n\nEscribe el nuevo municipio, equipo o correo:`, 'Equipo 3 (Ibagué)');
-    if (promptNuevoEquipo) {
-       simularNotificacion('modificación de base de datos', nombre);
+  const editarMadre = async (madre) => {
+    const nuevoMunicipio = window.prompt(`Municipio de ${madre.nombre}:`, madre.municipio);
+    if (!nuevoMunicipio) return;
+    const nuevoEquipo = window.prompt(`Equipo de ${madre.nombre}:`, madre.equipo);
+    if (nuevoEquipo === null) return;
+    const nuevoCorreo = window.prompt(`Correo de ${madre.nombre}:`, madre.correo);
+    if (nuevoCorreo === null) return;
+
+    const res = await apiUpdateMadre(madre.id, {
+      nombre: madre.nombre,
+      documento: madre.documento,
+      email: nuevoCorreo.trim() || null,
+      municipio: nuevoMunicipio.trim(),
+      equipo: nuevoEquipo.trim() || null,
+      estado: madre.estado,
+    });
+
+    if (res.success) {
+      setMadres(prev => prev.map(m => m.id === madre.id
+        ? { ...m, municipio: res.data.municipio, equipo: res.data.equipo ?? '', correo: res.data.email ?? '' }
+        : m
+      ));
+      mostrarNotificacion(`Datos de ${madre.nombre} actualizados en la base de datos.`);
+    } else {
+      alert(`Error al actualizar: ${res.error}`);
     }
   };
   
-  const agregarMadre = () => {
+  const agregarMadre = async () => {
     const nombre = window.prompt('Nombre completo de la nueva Madre Sustituta:');
-    if (nombre) {
-       setMadres([...madres, { id: Date.now(), nombre, documento: '12345678', municipio: 'Asignar', equipo: 'Asignar', correo: 'nuevo@mail.com'}]);
-       simularNotificacion('inserción', nombre);
+    if (!nombre) return;
+    const documento = window.prompt(`Número de documento de ${nombre}:`);
+    if (!documento) return;
+    const municipio = window.prompt(`Municipio de ${nombre}:`);
+    if (!municipio) return;
+    const equipo = window.prompt(`Equipo asignado (opcional):`, '');
+    const correo = window.prompt(`Correo electrónico (opcional):`, '');
+
+    const res = await apiCreateMadre({
+      nombre: nombre.trim(),
+      documento: documento.trim(),
+      municipio: municipio.trim(),
+      equipo: equipo?.trim() || null,
+      email: correo?.trim() || null,
+    });
+
+    if (res.success) {
+      const m = res.data;
+      setMadres(prev => [...prev, {
+        id: m.id,
+        nombre: m.nombre,
+        documento: m.documento,
+        municipio: m.municipio,
+        equipo: m.equipo ?? '',
+        correo: m.email ?? '',
+        estado: m.estado,
+      }]);
+      mostrarNotificacion(`${nombre} ha sido registrada en la base de datos.`);
+    } else {
+      alert(`Error al registrar: ${res.error}`);
     }
-  }
+  };
+
+  // ── Filtered list ───────────────────────────────────────────────────────────
+  const madresFiltradas = madres.filter(m =>
+    m.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+    m.documento.includes(busqueda)
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -78,7 +158,13 @@ export default function GestorMadres() {
             <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50">
                <div className="relative w-full sm:w-96">
                   <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input type="text" placeholder="Buscar por documento o nombre..." className="input-premium pl-10 w-full" />
+                  <input
+                    type="text"
+                    value={busqueda}
+                    onChange={e => setBusqueda(e.target.value)}
+                    placeholder="Buscar por documento o nombre..."
+                    className="input-premium pl-10 w-full"
+                  />
                </div>
                <div className="flex items-center gap-2 text-sm text-primary-900 font-bold bg-primary-100 px-4 py-2 rounded-lg border border-primary-200 shadow-inner">
                   <ShieldCheck className="w-5 h-5 text-primary-600" /> Conexión Abierta de Alto Privilegio
@@ -97,7 +183,32 @@ export default function GestorMadres() {
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                     {madres.map((m) => (
+                     {loading && (
+                       <tr>
+                         <td colSpan={5} className="p-10 text-center text-slate-400 font-bold">
+                           <div className="flex items-center justify-center gap-2">
+                             <Loader2 className="w-5 h-5 animate-spin" /> Cargando directorio desde la base de datos...
+                           </div>
+                         </td>
+                       </tr>
+                     )}
+                     {!loading && apiError && (
+                       <tr>
+                         <td colSpan={5} className="p-10 text-center text-red-500 font-bold">
+                           <div className="flex items-center justify-center gap-2">
+                             <AlertCircle className="w-5 h-5" /> {apiError}
+                           </div>
+                         </td>
+                       </tr>
+                     )}
+                     {!loading && !apiError && madresFiltradas.length === 0 && (
+                       <tr>
+                         <td colSpan={5} className="p-10 text-center text-slate-400 font-bold">
+                           {busqueda ? 'No se encontraron resultados.' : 'No hay madres sustitutas registradas.'}
+                         </td>
+                       </tr>
+                     )}
+                     {!loading && !apiError && madresFiltradas.map((m) => (
                         <tr key={m.id} className="hover:bg-primary-50 transition-colors">
                            <td className="p-4">
                               <p className="font-bold text-slate-800">{m.nombre}</p>
@@ -112,7 +223,7 @@ export default function GestorMadres() {
                            </td>
                            <td className="p-4">
                               <div className="flex items-center justify-center gap-3">
-                                 <button onClick={() => editarMadre(m.nombre)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors border border-transparent hover:border-blue-200" title="Editar Información">
+                                 <button onClick={() => editarMadre(m)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors border border-transparent hover:border-blue-200" title="Editar Información">
                                    <Edit2 className="w-4 h-4" />
                                  </button>
                                  <button onClick={() => eliminarMadre(m.id, m.nombre)} className="p-2 text-slate-400 hover:text-accent-500 hover:bg-red-100 rounded-lg transition-colors border border-transparent hover:border-red-200" title="Eliminar (Enviará Alerta)">
